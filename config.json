@@ -1,0 +1,4 @@
+{
+    "source": "dataset/raw_data",
+    "destination": "dataset/processed_data"
+}

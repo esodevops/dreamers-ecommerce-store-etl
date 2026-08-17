@@ -14,6 +14,7 @@ The pipeline performs the following steps:
 6. Creates the configured PostgreSQL database if it does not exist.
 7. Creates the `dreamers` schema and its four tables.
 8. Loads the processed data into PostgreSQL.
+9. Provides an Apache Airflow DAG that orchestrates the extract, transform, and load stages.
 
 ## Project structure
 
@@ -30,10 +31,15 @@ Dreamers-Ecommerce-Store/
 │       └── invoice_items.csv
 ├── notebooks/
 │   └── dreamers-etl.ipynb
+├── dags/
+│   └── dag-dreamers.py
 ├── sql/
 │   └── dreamers.sql
 ├── src/
-│   └── dreamers-etl.py
+│   ├── dreamers-etl.py
+│   ├── extraction.py
+│   ├── transformation.py
+│   └── loading.py
 ├── .env
 ├── requirements.txt
 └── README.md
@@ -47,6 +53,8 @@ Dreamers-Ecommerce-Store/
 - psycopg2
 - PostgreSQL
 - Jupyter Notebook
+- Apache Airflow
+- Airflow SMTP provider
 
 ## Requirements
 
@@ -161,6 +169,75 @@ Loaded CSV files and PostgreSQL tables
 ```
 
 > **Important:** Each run drops and recreates the four tables in the `dreamers` schema. Existing data in those tables is replaced.
+
+## Run with Apache Airflow
+
+The project includes `dags/dag-dreamers.py`, which defines the
+`dreamers_ecommerce_dag` batch pipeline. It runs three Python tasks in this
+order:
+
+```text
+extraction_layer → transformation_layer → loading_layer
+```
+
+The DAG is manually triggered (`schedule=None`), does not backfill historical
+runs (`catchup=False`), retries a failed task once after one minute, and can
+send an email notification when a task fails.
+
+### 1. Set the Airflow home directory
+
+Use a project-local directory for Airflow's metadata and logs:
+
+```bash
+export AIRFLOW_HOME="$PWD/.airflow"
+```
+
+### 2. Make the DAG available to Airflow
+
+Point Airflow at this project's `dags` directory:
+
+```bash
+export AIRFLOW__CORE__DAGS_FOLDER="$PWD/dags"
+```
+
+Keep the PostgreSQL variables from `.env` configured as described above. The
+loading module reads the project-level `.env` file when the DAG runs.
+
+### 3. Start Airflow
+
+With the virtual environment activated, start the local Airflow services:
+
+```bash
+airflow standalone
+```
+
+Open the URL printed by Airflow, sign in with the generated administrator
+credentials, locate `dreamers_ecommerce_dag`, enable it, and trigger a run.
+
+You can also trigger the DAG from another terminal after Airflow has started:
+
+```bash
+airflow dags trigger dreamers_ecommerce_dag
+```
+
+### Optional failure email notifications
+
+The DAG uses the `smtp_default` Airflow connection and reads the recipient and
+sender address from `AIRFLOW_ALERT_EMAIL`. Set the email address before starting
+Airflow:
+
+```bash
+export AIRFLOW_ALERT_EMAIL="you@example.com"
+```
+
+Configure an Airflow connection named `smtp_default` with the SMTP host,
+credentials, port, and TLS settings required by your email provider. Without a
+working SMTP connection, the ETL can still run, but Airflow cannot deliver task
+failure emails.
+
+> **Important:** The Airflow loading task uses the same replacement behavior as
+> the command-line ETL: it drops and recreates the four tables in the
+> `dreamers` schema.
 
 ## Processed outputs
 
@@ -301,9 +378,28 @@ Run the ETL pipeline before running `sql/dreamers.sql`. The pipeline creates the
 
 The database columns use names such as `"CustomerID"` and `"InvoiceNo"`. PostgreSQL queries must place these mixed-case names in double quotes.
 
+### DAG does not appear in Airflow
+
+Confirm that `AIRFLOW__CORE__DAGS_FOLDER` points to the absolute path of the
+project's `dags` directory, then check for import errors:
+
+```bash
+airflow dags list-import-errors
+```
+
+### Failure notification cannot be sent
+
+Confirm that `AIRFLOW_ALERT_EMAIL` is set and that the `smtp_default` Airflow
+connection contains valid SMTP settings. The task logs contain the underlying
+connection or authentication error.
+
 ## Main files
 
 - `src/dreamers-etl.py` — executable ETL pipeline
+- `src/extraction.py` — reusable extraction task
+- `src/transformation.py` — reusable transformation task
+- `src/loading.py` — CSV and PostgreSQL loading task
+- `dags/dag-dreamers.py` — Apache Airflow DAG and task dependencies
 - `notebooks/dreamers-etl.ipynb` — notebook version of the workflow
 - `config.json` — source and destination paths
 - `sql/dreamers.sql` — analytics queries

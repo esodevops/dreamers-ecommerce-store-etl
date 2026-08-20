@@ -6,7 +6,14 @@ except ModuleNotFoundError:
     from extraction import extract_data
 
 
-LAST_CUSTOMER_ID = 406829
+def assign_customer_ids(data):
+    """Keep known IDs and create one ID for each anonymous invoice."""
+    customer_ids = data.groupby("InvoiceNo")["CustomerID"].transform("first")
+    next_id = int(customer_ids.max()) + 1
+    missing = customer_ids.isna()
+    new_ids = data.loc[missing].groupby("InvoiceNo", sort=False).ngroup() + next_id
+
+    return customer_ids.fillna(new_ids).astype(int)
 
 
 def transform_data():
@@ -15,10 +22,7 @@ def transform_data():
     data = extract_data()
     data = data.copy()
 
-    # The source data have missing customer IDs. Give each invoice one customer ID.
-    data["CustomerID"] = (
-        data.groupby("InvoiceNo").ngroup() + LAST_CUSTOMER_ID + 1
-    )
+    data["CustomerID"] = assign_customer_ids(data)
 
     # Convert invoice dates from text to real date and time values.
     data["InvoiceDate"] = pd.to_datetime(data["InvoiceDate"])

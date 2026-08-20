@@ -7,7 +7,7 @@ This project extracts a raw ecommerce CSV file, transforms it into four related 
 The pipeline performs the following steps:
 
 1. Reads `dreamers_ecommerce.csv` from the source directory in `config.json`.
-2. Assigns one customer ID to each invoice.
+2. Preserves source customer IDs and assigns surrogate IDs only to anonymous invoices.
 3. Converts invoice dates to a datetime format.
 4. Creates customer, product, invoice, and invoice-item datasets.
 5. Saves the processed datasets as CSV files.
@@ -143,7 +143,9 @@ The raw CSV is expected to contain these columns:
 | `UnitPrice` | Price per unit |
 | `Country` | Customer country |
 
-The pipeline generates a consistent customer ID for each invoice, starting after `406829`.
+The pipeline preserves genuine customer IDs. Missing IDs inherit the known customer
+from the same invoice when available. Fully anonymous invoices receive stable
+surrogate IDs starting above the largest genuine customer ID, preventing collisions.
 
 ## Run the ETL pipeline
 
@@ -245,7 +247,7 @@ The destination directory receives four CSV files:
 
 | File | Contents |
 |---|---|
-| `customer.csv` | One row per generated customer |
+| `customer.csv` | One row per genuine or anonymous surrogate customer |
 | `product.csv` | One row per stock code |
 | `invoice.csv` | One row per invoice |
 | `invoice_items.csv` | Total quantity for each invoice and stock-code combination |

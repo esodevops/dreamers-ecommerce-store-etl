@@ -56,7 +56,7 @@ def create_database(database_name):
 
 
 def write_database_tables(tables, database_name):
-    """Create the Dreamers tables and load the transformed data."""
+    """Load staging tables, then atomically promote them to production."""
     database_url = (
         f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
         f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{database_name}"
@@ -64,60 +64,65 @@ def write_database_tables(tables, database_name):
     engine = create_engine(database_url)
 
     with engine.begin() as connection:
-        connection.execute(text("CREATE SCHEMA IF NOT EXISTS dreamers"))
-
-        # Drop child tables first because they contain foreign keys.
-        connection.execute(text("DROP TABLE IF EXISTS dreamers.invoice_items"))
-        connection.execute(text("DROP TABLE IF EXISTS dreamers.invoices"))
-        connection.execute(text("DROP TABLE IF EXISTS dreamers.products"))
-        connection.execute(text("DROP TABLE IF EXISTS dreamers.customers"))
+        # Build the new version without changing the live tables.
+        connection.execute(text("DROP SCHEMA IF EXISTS dreamers_staging CASCADE"))
+        connection.execute(text("CREATE SCHEMA dreamers_staging"))
 
         connection.execute(text('''
-                CREATE TABLE dreamers.customers (
+                CREATE TABLE dreamers_staging.customers (
                     "CustomerID" INT PRIMARY KEY,
                     "Country" VARCHAR(255)
                 )
             '''))
         connection.execute(text('''
-                CREATE TABLE dreamers.products (
+                CREATE TABLE dreamers_staging.products (
                     "StockCode" VARCHAR(255) PRIMARY KEY,
-                    "Description" VARCHAR(255),
-                    "UnitPrice" DECIMAL(10, 2)
+                    "Description" VARCHAR(255)
                 )
             '''))
         connection.execute(text('''
-                CREATE TABLE dreamers.invoices (
+                CREATE TABLE dreamers_staging.invoices (
                     "InvoiceNo" VARCHAR(255) PRIMARY KEY,
-                    "CustomerID" INT REFERENCES dreamers.customers("CustomerID"),
+                    "CustomerID" INT REFERENCES dreamers_staging.customers("CustomerID"),
                     "InvoiceDate" TIMESTAMP
                 )
             '''))
         connection.execute(text('''
-                CREATE TABLE dreamers.invoice_items (
-                    "InvoiceNo" VARCHAR(255) REFERENCES dreamers.invoices("InvoiceNo"),
-                    "StockCode" VARCHAR(255) REFERENCES dreamers.products("StockCode"),
+                CREATE TABLE dreamers_staging.invoice_items (
+                    "InvoiceNo" VARCHAR(255) REFERENCES dreamers_staging.invoices("InvoiceNo"),
+                    "StockCode" VARCHAR(255) REFERENCES dreamers_staging.products("StockCode"),
+                    "UnitPrice" DECIMAL(10, 2),
                     "Quantity" INT,
-                    PRIMARY KEY ("InvoiceNo", "StockCode")
+                    PRIMARY KEY ("InvoiceNo", "StockCode", "UnitPrice")
                 )
             '''))
 
         # Load parent tables before child tables to satisfy foreign keys.
         tables["customers"].to_sql(
-            "customers", connection, schema="dreamers", if_exists="append", index=False
+            "customers", connection, schema="dreamers_staging", if_exists="append", index=False
         )
         tables["products"].to_sql(
-            "products", connection, schema="dreamers", if_exists="append", index=False
+            "products", connection, schema="dreamers_staging", if_exists="append", index=False
         )
         tables["invoices"].to_sql(
-            "invoices", connection, schema="dreamers", if_exists="append", index=False
+            "invoices", connection, schema="dreamers_staging", if_exists="append", index=False
         )
         tables["invoice_items"].to_sql(
             "invoice_items",
             connection,
-            schema="dreamers",
+            schema="dreamers_staging",
             if_exists="append",
             index=False,
         )
+
+        # Keep the last successful version, then publish the new one at once.
+        live_schema_exists = connection.execute(
+            text("SELECT 1 FROM information_schema.schemata WHERE schema_name = 'dreamers'")
+        ).scalar()
+        connection.execute(text("DROP SCHEMA IF EXISTS dreamers_previous CASCADE"))
+        if live_schema_exists:
+            connection.execute(text("ALTER SCHEMA dreamers RENAME TO dreamers_previous"))
+        connection.execute(text("ALTER SCHEMA dreamers_staging RENAME TO dreamers"))
 
     engine.dispose()
 

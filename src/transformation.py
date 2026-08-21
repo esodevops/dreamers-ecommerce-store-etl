@@ -31,16 +31,16 @@ def transform_data():
     customers = data[["CustomerID", "Country"]].drop_duplicates(
         subset=["CustomerID"]
     )
-    products = data[
-        ["StockCode", "Description", "UnitPrice"]
-    ].drop_duplicates(subset=["StockCode"])
+    products = data[["StockCode", "Description"]].drop_duplicates(
+        subset=["StockCode"]
+    )
     invoices = data[
         ["InvoiceNo", "CustomerID", "InvoiceDate"]
     ].drop_duplicates(subset=["InvoiceNo"])
 
-    # Add quantities when a product appears more than once on an invoice.
+    # Keep the price paid on each invoice item.
     invoice_items = data.groupby(
-        ["InvoiceNo", "StockCode"], as_index=False
+        ["InvoiceNo", "StockCode", "UnitPrice"], as_index=False
     )["Quantity"].sum()
 
     print("Created customers, products, invoices and invoice items")

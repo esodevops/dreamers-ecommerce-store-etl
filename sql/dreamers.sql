@@ -27,13 +27,16 @@ ORDER BY total_customers DESC;
 
 -- 6. Average product price
 SELECT ROUND(AVG("UnitPrice"), 2) AS average_product_price
-FROM dreamers.products;
+FROM dreamers.invoice_items;
 
 
 -- 7. Ten most expensive products
-SELECT "StockCode", "Description", "UnitPrice"
-FROM dreamers.products
-ORDER BY "UnitPrice" DESC
+SELECT p."StockCode", p."Description", MAX(i."UnitPrice") AS highest_price
+FROM dreamers.products AS p
+JOIN dreamers.invoice_items AS i
+    ON p."StockCode" = i."StockCode"
+GROUP BY p."StockCode", p."Description"
+ORDER BY highest_price DESC
 LIMIT 10;
 
 
@@ -57,10 +60,8 @@ LIMIT 10;
 
 -- 10. Ten invoices with the highest sales value
 SELECT i."InvoiceNo",
-       ROUND(SUM(i."Quantity" * p."UnitPrice"), 2) AS total_sales
+       ROUND(SUM(i."Quantity" * i."UnitPrice"), 2) AS total_sales
 FROM dreamers.invoice_items AS i
-JOIN dreamers.products AS p
-    ON i."StockCode" = p."StockCode"
 GROUP BY i."InvoiceNo"
 ORDER BY total_sales DESC
 LIMIT 10;

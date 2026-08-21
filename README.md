@@ -170,7 +170,9 @@ Created customers, products, invoices and invoice items
 Loaded CSV files and PostgreSQL tables
 ```
 
-> **Important:** Each run drops and recreates the four tables in the `dreamers` schema. Existing data in those tables is replaced.
+Each run loads into `dreamers_staging` first. After a successful load, PostgreSQL
+atomically promotes it to `dreamers` and keeps the prior version in
+`dreamers_previous`. If loading fails, the live `dreamers` schema is unchanged.
 
 ## Run with Apache Airflow
 
@@ -237,9 +239,8 @@ credentials, port, and TLS settings required by your email provider. Without a
 working SMTP connection, the ETL can still run, but Airflow cannot deliver task
 failure emails.
 
-> **Important:** The Airflow loading task uses the same replacement behavior as
-> the command-line ETL: it drops and recreates the four tables in the
-> `dreamers` schema.
+The Airflow loading task uses the same staging and atomic promotion process as
+the command-line ETL.
 
 ## Processed outputs
 
@@ -250,7 +251,7 @@ The destination directory receives four CSV files:
 | `customer.csv` | One row per genuine or anonymous surrogate customer |
 | `product.csv` | One row per stock code |
 | `invoice.csv` | One row per invoice |
-| `invoice_items.csv` | Total quantity for each invoice and stock-code combination |
+| `invoice_items.csv` | Quantity and historical price for each invoice item |
 
 ## Database model
 
@@ -269,7 +270,6 @@ The PostgreSQL database uses the `dreamers` schema.
 |---|---|---|
 | `StockCode` | `VARCHAR(255)` | Primary key |
 | `Description` | `VARCHAR(255)` | — |
-| `UnitPrice` | `DECIMAL(10,2)` | — |
 
 ### `dreamers.invoices`
 
@@ -285,9 +285,10 @@ The PostgreSQL database uses the `dreamers` schema.
 |---|---|---|
 | `InvoiceNo` | `VARCHAR(255)` | Foreign key to `invoices` |
 | `StockCode` | `VARCHAR(255)` | Foreign key to `products` |
+| `UnitPrice` | `DECIMAL(10,2)` | Price charged on the invoice |
 | `Quantity` | `INT` | — |
 
-`InvoiceNo` and `StockCode` form the composite primary key.
+`InvoiceNo`, `StockCode`, and `UnitPrice` form the composite primary key.
 
 ## Run the analytics queries
 
